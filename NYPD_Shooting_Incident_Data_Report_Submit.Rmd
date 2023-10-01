@@ -1,0 +1,717 @@
+---
+title: "Final Project 1: Video Presentation and Document on Github"
+author: "Akira Hanada"
+date: "2023-09-16"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1.Introduction
+In the metropolis of New York City, the New York City Police Department (NYPD) plays a critical role in maintaining public safety. In the context of urban life, incidents involving the discharge of firearms pose significant challenges to the community. Analyzing NYPD shootings can contribute to public safety and community well-being by discovering the underlying causes and trends that shape these incidents.
+
+## 2. Data Source
+This study utilized NYPD shooting incident data from NYC Open Data <https://data.cityofnewyork.us/Public-Safety/NYPD-Shooting-Incident-Data-Historic-/833y-fsy8>.
+
+
+## 3. Data Gathering 
+First, data is retrieved from the specified location.
+
+```{r }
+#Install packages
+#install.packages("tidyverse")
+#install.packages("upstartr")
+#install.packages("leaflet")
+#install.packages("forecast")
+
+#Set Language
+Sys.setenv(LANGUAGE="en")
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+# Load libraries
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(tidyverse)
+library(RColorBrewer)
+
+```
+
+
+```{r cars}
+# Import the dataset
+
+dat <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+```
+
+Check the contents of the retrieved CSV file.
+```{r}
+# View the first few rows of the data
+head(dat)
+```
+
+This dataset appears to contain a variety of details about the New York City shooting. Below is an overview of some of the columns:
+
+- **INCIDENT_KEY:** Unique identifier of the incident.
+- **OCCUR_DATE:** The date the incident occurred.
+- **OCCUR_TIME:** Time the incident occurred.
+- **BORO:** The borough in which the incident occurred.
+- **PRECINCT:** The police precinct responsible for the area where the incident occurred.
+- **JURISDICTION_CODE:** Jurisdiction code (may relate to the nature of the responsible authority or location).
+- **STATISTICAL_MURDER_FLAG:** Whether the incident is statistically classified as a homicide.
+- **VIC_AGE_GROUP:** Age group of the victim.
+- **VIC_SEX:** Gender of the victim.
+- **VIC_RACE:** Race of the victim.
+- **Latitude & Longitude:** Geographic coordinates of the incident.
+
+
+Summary of the retrieved CSV file.
+```{r}
+summary(dat)
+```
+
+## 4. Data cleaning 
+I start with Data Cleaning. 
+I will check for missing values and handle them as necessary.
+```{r}
+# Count NA per column
+colSums(is.na(dat))
+```
+I will drop the columns LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, and LOCATION_DESC as they have a significant number of missing values and might not be crucial for my primary analysis.
+
+```{r}
+#drop the colums LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, and LOCATION_DESC
+df <- subset(dat, select = -c(LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, LOCATION_DESC))
+
+```
+
+
+Fill in missing values with the placeholder value "UNKNOWN" for PERP_AGE_GROUP, PERP_SEX, and PERP_RACE.
+```{r}
+
+df_rep <- df %>%
+    replace_na(list(PERP_AGE_GROUP = 'UNKNOWN')) %>%
+    replace_na(list(PERP_SEX = 'UNKNOWN')) %>%
+    replace_na(list(PERP_RACE = 'UNKNOWN'))
+
+```
+
+Fill in the missing value of JURISDICTION_CODE with the mode (most frequent value).
+```{r}
+# create the function calc_mode that combines these steps are returns the mode of a vector.
+calc_mode <- function(x){
+  
+  # List the distinct / unique values
+  distinct_values <- unique(x)
+  
+  # Count the occurrence of each distinct value
+  distinct_tabulate <- tabulate(match(x, distinct_values))
+  
+  # Return the value with the highest occurrence
+  distinct_values[which.max(distinct_tabulate)]
+}
+
+#Fill in the missing value of JURISDICTION_CODE with the mode (most frequent value).
+my_df <- df_rep %>% 
+  mutate(JURISDICTION_CODE = if_else(is.na(JURISDICTION_CODE), 
+                         calc_mode(JURISDICTION_CODE), 
+                         JURISDICTION_CODE))
+# Count NA per column
+colSums(is.na(my_df))
+```
+
+Erase unnecessary characters from Lon_Lat data and split the data into Lon and Lat.
+```{r}
+my_df$Lon_Lat <- gsub(")","",as.character(my_df$Lon_Lat))  
+my_df$Lon_Lat <- gsub("POINT", "", as.character(my_df$Lon_Lat)) 
+my_df$Lon_Lat <- substring(my_df$Lon_Lat, 3)
+my_df[c('Lon', 'Lat')] <- str_split_fixed(my_df$Lon_Lat, ' ', 2)
+```
+
+
+Convert Lon and Lat string columns to floating point
+```{r}
+
+my_df$Lon <- as.double(my_df$Lon) 
+my_df$Lat <- as.double(my_df$Lat) 
+
+```
+
+drop the colums Lon_Lat
+```{r}
+
+#drop the colums Lon_Lat
+my_df <- subset(my_df, select = -c(Lon_Lat))
+
+```
+
+
+Fill missing values in Latitude, Longitude, Lon, and Lat by computing the mean of the respective columns.
+```{r}
+my_df_rep <- my_df
+my_df_rep$Latitude[is.na(my_df_rep$Latitude)] <- mean(my_df_rep$Latitude, na.rm = TRUE) 
+my_df_rep$Longitude[is.na(my_df_rep$Longitude)] <- mean(my_df_rep$Longitude, na.rm = TRUE) 
+my_df_rep$Lon[is.na(my_df_rep$Lon)] <- mean(my_df_rep$Lon, na.rm = TRUE) 
+my_df_rep$Lat[is.na(my_df_rep$Lat)] <- mean(my_df_rep$Lon, na.rm = TRUE) 
+
+# Count NA per column
+colSums(is.na(my_df_rep))
+
+```
+Missing values are now gone.
+
+Next, converts date data from string to date data.
+```{r}
+my_df_rep <- my_df_rep %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+
+```
+
+
+I have successfully addressed all the missing values.
+This is the result of data cleaning.
+```{r}
+
+nypd_data <- my_df_rep
+head(nypd_data)
+```
+
+
+## 5. visualization and analysis
+
+Next, let's start analyzing the cleaned data through data visualization.
+
+### 5.1 Map of New York City
+
+First, I plot and visualize the locations where the shooting incident occurred on a map of New York City.
+```{r}
+# Load necessary libraries
+
+library(leaflet)
+library(readr)
+
+
+# Filter out rows with NA values for Latitude and Longitude
+nypd_data_filtered <- nypd_data[!is.na(nypd_data$Latitude) & !is.na(nypd_data$Longitude), ]
+
+# Create a base map of New York City
+nyc_map <- leaflet() %>%
+  addTiles() %>%
+  setView(lng = -74.0060, lat = 40.7128, zoom = 11) %>%
+  addCircleMarkers(
+    data = nypd_data_filtered,
+    lng = ~Longitude,
+    lat = ~Latitude,
+    radius = 1,
+    color = "blue",
+    fill = TRUE,
+    fillColor = "blue",
+    fillOpacity = 0.6
+  )
+
+# Display the map
+nyc_map
+
+```
+I see that there are shooting incidents happening in different areas of New York City, with some areas having more incidents than others.
+
+
+### 5.2 Difference amaong boroughs
+Next, I analyze the statistical data.
+
+```{r}
+borough_counts <- table(nypd_data$BORO)
+borough_counts_sorted <- borough_counts[order(-borough_counts)]
+
+ggplot(nypd_data, aes(x = factor(BORO, levels = names(borough_counts_sorted)))) +
+  geom_bar(aes(fill = BORO), position = "dodge") +
+  scale_fill_brewer(palette = "viridis") +
+  labs(title = "Distribution of Shooting Incidents Across Boroughs",
+       x = "Borough",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+The figure above shows the distribution of shootings in the different boroughs. 
+
+- The plot shows that Brooklyn has the highest number of shootings, followed by the Bronx and Queens.
+- Staten Island has the fewest incidents of all the boroughs.
+
+
+### 5.3 Yearly distribution of incidents
+```{r}
+
+
+# Extracting year from the 'OCCUR_DATE' column
+nypd_data$YEAR <- year(as.Date(nypd_data$OCCUR_DATE, format="%Y-%m-%d")) 
+
+
+# Visualization : Yearly distribution of incidents
+ggplot(nypd_data, aes(x = YEAR)) +
+  geom_bar(aes(), position = "dodge") +
+  scale_x_continuous(breaks = unique(nypd_data$YEAR)) + # Display each year on the x-axis
+  labs(title = "Yearly Distribution of Shooting Incidents",
+       x = "Year",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+The figure above shows the annual distribution of shootings. Observations from the plot are as follows:
+
+- There is a marked increase from 2009 to 2011.
+- 2017-2018 had the fewest incidents.
+- After 2012, there was a decrease and then a increase in 2020.
+
+### 5.4 Monthly distribution of incidents
+
+```{r}
+# loaded as 'nypd_data_new'
+nypd_data_mon <- nypd_data
+
+# Extracting year from the 'OCCUR_DATE' column
+nypd_data_mon$Month <- month(as.Date(nypd_data_mon$OCCUR_DATE, format="%Y-%m-%d")) 
+
+
+# Visualization : Yearly distribution of incidents
+ggplot(nypd_data_mon, aes(x = Month)) +
+  geom_bar(aes(), position = "dodge") +
+  scale_x_continuous(breaks = unique(nypd_data_mon$Month)) + 
+  labs(title = "Monthly Distribution of Shooting Incidents",
+       x = "Month",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+The visualization shows the distribution of shooting incidents based on the month. 
+
+- Incidents are most common in July and August.
+- Incidents are low from January through March.
+- Incidents were higher in the summer and lower in the winter.
+
+
+### 5.5 Plotting the distribution of incidents based on the hour of the day
+
+```{r}
+# loaded as 'nypd_data_new'
+nypd_data_new <- nypd_data
+
+# Extracting the hour from the timestamp column (assuming the column name is 'OCCUR_DATE')
+nypd_data_new$HOUR_OF_DAY <- hour(as.POSIXct(nypd_data_new$OCCUR_TIME, format="%H:%M:%S")) 
+
+# Plotting the distribution of incidents based on the hour of the day
+ggplot(nypd_data_new, aes(x = HOUR_OF_DAY)) +
+  geom_bar(aes(), position = "dodge") +
+  labs(title = "Distribution of Shooting Incidents by Hour of the Day",
+       x = "Hour of the Day (24-hour format)",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+  )
+
+
+```
+
+The visualization shows the distribution of shooting incidents based on time of day. 
+
+- Incidents peak during the evening hours, especially from 9pm (9pm) to midnight.
+- There are fewer incidents during the early morning hours, especially from 6:00 am to 9:00 am.
+
+
+
+
+
+### 5.6 Shooting Incidents Based on Victim and Perpetrator Age Group
+
+```{r}
+# Exclude rows with ' '1020' in the 'VIC_AGE_GROUP' column
+nypd_data_vict <- subset(nypd_data, !(VIC_AGE_GROUP %in% c("1022")))
+
+# Visualization: Distribution of incidents based on VIC age group
+ggplot(nypd_data_vict, aes(x = VIC_AGE_GROUP)) +
+  geom_bar(aes(fill = VIC_AGE_GROUP), position = "dodge") +
+  scale_fill_brewer(palette = "viridis") + # Approximation to the 'viridis' palette
+  labs(title = "Distribution of Shooting Incidents Based on Victim Age Group",
+       x = "Victim Age Group",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Next, let me visualize the distribution of incidents based on the age group of the victim.
+The figure above visualizes the distribution of shootings based on the age group of the victim. The observations from this plot are as follows:
+
+- The 25-44 age group has the highest number of victims, followed by the 18-24 age group.
+- The number of victims under the age of 18 and 45-64 is relatively similar.
+- The 65+ and UNKNOWN age groups have the fewest number of victims.
+
+
+```{r}
+
+
+# Exclude rows with 'NA, '1020', '224', and '940' in the 'PERP_AGE_GROUP' column
+nypd_data_PERP <- subset(nypd_data, !(PERP_AGE_GROUP %in% c(NA, "1020", "224", "940")))
+
+# Visualization: Distribution of incidents based on perpetrator's age group
+ggplot(nypd_data_PERP, aes(x = PERP_AGE_GROUP)) +
+  geom_bar(aes(fill = PERP_AGE_GROUP), position = "dodge") +
+  scale_fill_brewer(palette = "viridis") + # Approximation to the 'viridis' palette
+  labs(title = "Distribution of Shooting Incidents Based on Perpetrator Age Group",
+       x = "Perpetrator Age Group",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+The distribution of shooting incidents based on the age group of the perpetrator is shown in the figure above. From the plot, I can observe that:
+
+- The most common age group of perpetrators is 18-24 years old. The age group of 25-44 years old closely follows.
+- There are also a significant number of perpetrators in the under-18 age group.
+- The 45-64 and 65+ age groups have fewer perpetrators.
+- In many cases, the age group of the perpetrator is unknown.
+
+
+### 5.7 Shooting Incidents Based on Victim and Perpetrator Gender
+
+```{r}
+# Visualization: Distribution of incidents based on victim's gender
+ggplot(nypd_data, aes(x = VIC_SEX)) +
+  geom_bar(aes(fill = VIC_SEX), position = "dodge") +
+  scale_fill_brewer(palette = "viridis") + # Approximation to the 'viridis' palette
+  labs(title = "Distribution of Shooting Incidents Based on Victim Gender",
+       x = "Victim Gender",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+```{r}
+
+# Visualization: Distribution of incidents based on perpetrator's gender
+ggplot(nypd_data, aes(x = PERP_SEX)) +
+  geom_bar(aes(fill = PERP_SEX), position = "dodge") +
+  scale_fill_brewer(palette = "viridis") + # Approximation to the 'viridis' palette
+  labs(title = "Distribution of Shooting Incidents Based on Perpetrator Gender",
+       x = "Perpetrator Gender",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+As the two graphs above show, both victims and perpetrators are predominantly male.
+
+
+
+### 5.8 Shooting Incidents Based on Victim and Perpetrator Race
+```{r}
+
+# Visualization: Distribution of incidents based on victim's race
+victim_race_counts <- table(nypd_data$VIC_RACE)
+victim_race_counts_sorted <- victim_race_counts[order(-victim_race_counts)]
+
+ggplot(nypd_data, aes(x = factor(VIC_RACE, levels = names(victim_race_counts_sorted)))) +
+  geom_bar(aes(fill = VIC_RACE), position = "dodge") +
+  scale_fill_brewer(palette = "viridis") + 
+  labs(title = "Distribution of Shooting Incidents Based on Victim Race",
+       x = "Victim Race",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+library(ggplot2)
+library(viridis)
+
+# Visualization: Distribution of incidents based on perpetrator's race
+perp_race_counts <- table(nypd_data$PERP_RACE)
+perp_race_counts_sorted <- perp_race_counts[order(-perp_race_counts)]
+
+ggplot(nypd_data, aes(x = factor(PERP_RACE, levels = names(perp_race_counts_sorted)))) +
+  geom_bar(aes(fill = PERP_RACE), position = "dodge") +
+  scale_fill_brewer(palette = "viridis") + 
+  labs(title = "Distribution of Shooting Incidents Based on Perpetrator Race",
+       x = "Perpetrator Race",
+       y = "Number of Incidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+The two graphs above show that blacks are the most common victims and perpetrators.
+
+
+
+## 6. Models to Forecast
+
+### 6.1 Forecast using the Holt-Winters Exponential Smoothing Model
+
+This is a time-series visualization of the actual and projected number of shootings:
+
+- The blue line represents the actual number of shooting incidents derived from the data.
+- The red dashed line represents the predicted number of shootings over the next 10 years using the Holt-Winters Exponential Smoothing model.
+Based on this projection, the number of shootings over the next 10 years is expected to fluctuate and decline. It should be noted, however, that this is a simple projection based on historical data, and real-world factors could affect this number in a variety of ways.
+
+
+```{r}
+#install.packages("forecast")
+library(ggplot2)
+library(forecast)
+#library(lubridate)
+
+
+# Grouping by year and counting the number of incidents
+yearly_incidents <- table(nypd_data$YEAR)
+
+# Creating the Holt-Winters Exponential Smoothing model
+model <- HoltWinters(ts(yearly_incidents, frequency=8), seasonal="additive")
+
+# Predicting the number of incidents
+forecast_values <- forecast(model, h=10)$mean
+
+# Visualizing the actual and predicted number of shooting incidents over time
+predicted_years <- seq(max(as.numeric(names(yearly_incidents))) + 1, by=1, length.out=10)
+data_to_plot <- data.frame(
+  Year = c(as.numeric(names(yearly_incidents)), predicted_years),
+  Incidents = c(as.numeric(yearly_incidents), forecast_values),
+  Type = c(rep('Actual', length(yearly_incidents)), rep('Predicted', 10))
+)
+
+ggplot(data_to_plot, aes(x=Year, y=Incidents, color=Type)) +
+  geom_line(aes(linetype=Type)) +
+  labs(title='Actual vs Predicted Number of Shooting Incidents Over Time (Yearly)', 
+       subtitle = 'Holt-Winters Exponential Smoothing model',
+       x='Year', 
+       y='Number of Incidents') +
+  scale_color_manual(values=c('blue', 'red')) +
+  theme_minimal() +
+  theme(legend.position="bottom")
+
+```
+
+
+I create the Holt-Winters Exponential Smoothing model to predict the number of incidents based on the month by visualizing the time trend. Visualize the actual and predicted number of shooting incidents over time.
+Based on historical data, I have made a prediction for the next 12 months. Check the chart below for the results.
+According to the results of this forecast, it can be expected to fluctuate significantly in the future.
+
+```{r}
+library(forecast)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+
+# Extracting month and year from the 'OCCUR_DATE' column
+nypd_data$Date <- as.Date(nypd_data$OCCUR_DATE, format="%Y-%m-%d")
+nypd_data$YEAR <- year(nypd_data$Date)
+nypd_data$MONTH <- month(nypd_data$Date)
+
+# Grouping by year and month and counting the number of incidents
+monthly_incidents <- nypd_data %>%
+  group_by(YEAR, MONTH) %>%
+  summarise(Incidents = n(), .groups = 'drop') %>%
+  mutate(Date = as.Date(paste(YEAR, MONTH, "01", sep="-")))
+
+# Creating a time series object
+ts_data <- ts(monthly_incidents$Incidents, start=c(min(nypd_data$YEAR), min(nypd_data$MONTH)), frequency=12)
+
+# Creating the Holt-Winters Exponential Smoothing model for monthly data
+model_monthly <- HoltWinters(ts_data)
+
+# Predicting the number of incidents for the next 12 months
+forecast_monthly <- forecast(model_monthly, h=12)
+
+# Visualizing the actual and predicted number of shooting incidents over time (monthly)
+autoplot(forecast_monthly) + 
+  ggtitle('Actual vs Predicted Number of Shooting Incidents Over Time (Monthly)') + 
+  xlab('Time (Year, Month)') + 
+  ylab('Number of Incidents') + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+### 6.2 Forecast using the Seasonal Auto Regressive Integrated Moving Average Model
+
+Using a statistical time series model called Seasonal Autoregressive Integrated Moving Average (SARIMA), I predicted the next 12 months based on historical monthly incident data.
+The figure below shows historical shooting incident trends and the results of the predictions for the next 12 months. 
+According to the results of this projection, I can expect significant fluctuations in the future. SARIMA model's prediction is more variable than the Holt-Winters Exponential Smoothing model described in the previous section.
+```{r}
+library(forecast)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+
+# Extracting month and year from the 'OCCUR_DATE' column
+nypd_data$Date <- as.Date(nypd_data$OCCUR_DATE, format="%Y-%m-%d")
+nypd_data$YEAR <- year(nypd_data$Date)
+nypd_data$MONTH <- month(nypd_data$Date)
+
+# Grouping by year and month and counting the number of incidents
+monthly_incidents <- nypd_data %>%
+  group_by(YEAR, MONTH) %>%
+  summarise(Incidents = n(), .groups = "drop") %>%
+  mutate(Date = as.Date(paste(YEAR, MONTH, "01", sep="-")))
+
+# Creating a time series object
+ts_data <- ts(monthly_incidents$Incidents, start=c(min(nypd_data$YEAR), min(nypd_data$MONTH)), frequency=12)
+
+# Creating the SARIMA model
+sarima_model <- auto.arima(ts_data, seasonal = TRUE, stepwise = TRUE, trace = TRUE, D = 1)
+sarima_forecast <- forecast(sarima_model, h=12)
+
+# Visualizing the actual and predicted number of shooting incidents over time (monthly)
+autoplot(sarima_forecast) + 
+  ggtitle('Actual vs Predicted Number of Shooting Incidents Over Time (SARIMA)') + 
+  xlab('Time (Year, Month)') + 
+  ylab('Number of Incidents') + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+### 6.3 Forecast using the  Prophet Model
+
+Finally, I used the Prophet model to predict the future based on past Shooting Incident trends.
+The figure below shows the results of the Prophet model predicting the number of incidents based on year. It can trend downward in the future.
+```{r}
+# Load necessary libraries
+#install.packages("prophet")
+library(prophet)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Extracting year from the 'OCCUR_DATE' column
+nypd_data$YEAR <- year(as.Date(nypd_data$OCCUR_DATE, format="%Y-%m-%d"))
+
+# Grouping by year and counting the number of incidents
+yearly_incidents <- nypd_data %>%
+  group_by(YEAR) %>%
+  summarise(Incidents = n(), .groups = "drop") %>%
+  mutate(ds = as.Date(paste(YEAR, "-01-01", sep="")))
+
+# Renaming columns for Prophet
+yearly_incidents <- yearly_incidents %>%
+  rename(y = Incidents)
+
+# Creating the Prophet model
+model <- prophet(yearly_incidents)
+
+# Making future dataframe for prediction
+future <- make_future_dataframe(model, periods = 5, freq = "year")
+
+# Forecasting the number of incidents for the next 5 years
+forecast <- predict(model, future)
+
+# Visualizing the actual and predicted number of shooting incidents over time
+plot(model, forecast)
+
+# Displaying the components of the forecast (trend, yearly seasonality)
+prophet_plot_components(model, forecast)
+
+# Displaying the summary of the forecast
+head(forecast[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+
+```
+
+The figure below shows the Prophet model predicting the number of incidents based on months. It shows a decreasing trend in the future. This trend is increasing in the long term, but it is expected to be affected by seasonal fluctuations.
+Based on these months, the Prophet Model is, I think, the most accurate predictive model. The reasons are as follows.
+
+- Incidents are high in summer and low in winter.
+- The long-term trend is that the number of incidents is increasing after bottoming out in 2018.
+```{r}
+# Load necessary libraries
+library(prophet)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Extracting year and month from the 'OCCUR_DATE' column
+nypd_data$YEAR <- year(as.Date(nypd_data$OCCUR_DATE, format="%Y-%m-%d"))
+nypd_data$MONTH <- month(as.Date(nypd_data$OCCUR_DATE, format="%Y-%m-%d"))
+
+# Grouping by year and month and counting the number of incidents
+monthly_incidents <- nypd_data %>%
+  group_by(YEAR, MONTH) %>%
+  summarise(Incidents = n(), .groups = "drop") %>%
+  mutate(ds = as.Date(paste(YEAR, MONTH, "01", sep="-")))
+
+# Renaming columns for Prophet
+monthly_incidents <- monthly_incidents %>%
+  rename(y = Incidents)
+
+# Creating the Prophet model
+model <- prophet(monthly_incidents)
+
+# Making future dataframe for prediction
+future <- make_future_dataframe(model, periods = 12, freq = "month")
+
+# Forecasting the number of incidents for the next 12 months
+forecast <- predict(model, future)
+
+# Visualizing the actual and predicted number of shooting incidents over time
+plot(model, forecast)
+
+# Displaying the components of the forecast (trend, yearly seasonality)
+prophet_plot_components(model, forecast)
+
+# Displaying the summary of the forecast
+head(forecast[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+
+```
+
+
+
+
+
+
+
+## 7. Identify Possible Biases
+Let me address the potential biases in the analysis:
+
+- **Data Collection Bias:** 
+The data set collected by the NYPD may contain unreported or misclassified incidents, potentially impacting the accuracy and completeness of the analysis.
+
+- **Demographic Bias:** 
+When analyzing incidents in New York City based on race or age, it's essential to consider the city's demographic distribution. This can impact the number of incidents involving certain races in the area. It's crucial to be aware of these potential biases when interpreting the results and using the analysis to make decisions.
+
+- **Temporal Bias:** 
+The dataset may only partially represent historical trends and patterns as it may only capture part of the timeline of incidents.
+
+- **Modeling Bias:** 
+I used the Holt-Winters Exponential Smoothing, SARIMA, and Prophet models for time series forecasting, but these approaches may need to capture complex data patterns. More sophisticated models may offer better insights.
+
+
+## 8. Conclusion
+In conclusion, this study utilized data from NYPD shooting incidents available on NYC Open Data. I have obtained and cleaned the data to fill in missing information, convert data types, and remove unnecessary characters. Further, I plotted the incident locations on a map, and the frequency of incidents was charted by boroughs, year, month, time of occurrence, age, gender, and race. I have created three models to predict time series and visualized the results in charts to show the predicted values. Lastly, I also have discussed potential biases that could have occurred during the analysis. 
+Thank you for your attention.
