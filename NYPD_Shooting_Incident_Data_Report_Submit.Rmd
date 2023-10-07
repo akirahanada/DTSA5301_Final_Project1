@@ -225,7 +225,7 @@ nyc_map
 I see that there are shooting incidents happening in different areas of New York City, with some areas having more incidents than others.
 
 
-### 5.2 Difference amaong boroughs
+### 5.2 Difference among boroughs
 Next, I analyze the statistical data.
 
 ```{r}
@@ -274,7 +274,7 @@ The figure above shows the annual distribution of shootings. Observations from t
 
 - There is a marked increase from 2009 to 2011.
 - 2017-2018 had the fewest incidents.
-- After 2012, there was a decrease and then a increase in 2020.
+- After 2012, there was a decrease and then an increase in 2020.
 
 ### 5.4 Monthly distribution of incidents
 
@@ -644,7 +644,7 @@ head(forecast[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
 
 ```
 
-The figure below shows the Prophet model predicting the number of incidents based on months. It shows a decreasing trend in the future. This trend is increasing in the long term, but it is expected to be affected by seasonal fluctuations.
+The figure below shows the Prophet model predicting the number of incidents based on months. It predicts an increase in the long term, but it is expected to be affected by seasonal fluctuations.
 Based on these months, the Prophet Model is, I think, the most accurate predictive model. The reasons are as follows.
 
 - Incidents are high in summer and low in winter.
